@@ -2,7 +2,7 @@
   "name": "claude-review",
   "displayName": "Claude Review",
   "description": "Ревью правок Claude Code прямо в файле: старое красным, новое зелёным, Accept / Reject на каждый кусок",
-  "version": "0.5.0",
+  "version": "0.6.1",
   "publisher": "local",
   "license": "UNLICENSED",
   "engines": {
@@ -25,6 +25,10 @@
       {
         "command": "claudeReview.undo",
         "title": "Claude Review: отменить последний Accept / Reject"
+      },
+      {
+        "command": "claudeReview.save",
+        "title": "Claude Review: сохранить (во вкладке ревью — ничего не делает)"
       },
       {
         "command": "claudeReview.openFile",
@@ -144,6 +148,12 @@
       ]
     },
     "keybindings": [
+      {
+        "key": "ctrl+s",
+        "mac": "cmd+s",
+        "command": "claudeReview.save",
+        "when": "resourceScheme == claude-review"
+      },
       {
         "key": "alt+y",
         "command": "claudeReview.acceptHunk",
@@ -392,12 +402,15 @@
   },
   "scripts": {
     "build": "tsc -p .",
+    "test": "npm run build && node --test out/test/*.test.js",
+    "format": "prettier --write .",
     "package": "npm run build && vsce package --allow-missing-repository --skip-license -o claude-review.vsix"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
+    "@types/node": "^20.19.43",
     "@types/vscode": "~1.100.0",
     "@vscode/vsce": "^3.0.0",
+    "prettier": "^3.9.10",
     "typescript": "~5.9.0"
   }
 }

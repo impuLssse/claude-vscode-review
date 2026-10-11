@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import { Hunk, LineDiff } from './line-diff';
-import { Baseline, BaselineStore } from './baseline-store';
+import * as fs from "fs";
+import { Hunk, LineDiff } from "./line-diff";
+import { Baseline, BaselineStore } from "./baseline-store";
 
 /**
  * Кусок правки и его место во вкладке ревью: сначала красные старые строки, за ними зелёные новые,
@@ -12,6 +12,15 @@ export interface ReviewBlock {
   greenLine: number;
   buttonsLine: number;
   buttonsColumn: number;
+  inline: InlineChange[];
+}
+
+/** Изменённые слова внутри строки вкладки ревью — их фон ярче, чем у всей строки */
+export interface InlineChange {
+  end: number;
+  line: number;
+  start: number;
+  removed: boolean;
 }
 
 /** Состояние файла и его исходника — до и после Accept / Reject, чтобы Cmd+Z мог всё вернуть */
@@ -31,9 +40,9 @@ export interface Review {
 
 export class ReviewService {
   /** Текст кнопок в строке под куском; пробелы по краям — поля зелёной и красной плашки */
-  static readonly acceptLabel = '  ✓ Accept  ⌥Y  ';
-  static readonly rejectLabel = '  ✗ Reject  ⌥N  ';
-  static readonly buttonsGap = '  ';
+  static readonly acceptLabel = "  ✓ Accept  ⌥Y  ";
+  static readonly rejectLabel = "  ✗ Reject  ⌥N  ";
+  static readonly buttonsGap = "  ";
 
   constructor(
     private readonly diff: LineDiff,
@@ -50,11 +59,17 @@ export class ReviewService {
     if (!entry) return undefined;
     const { baseline } = entry;
     const stat = fs.statSync(filePath, { throwIfNoEntry: false });
-    const baseLines = baseline.created ? [] : baseline.content.split('\n');
-    const currentLines = stat ? fs.readFileSync(filePath, 'utf8').split('\n') : [];
+    const baseLines = baseline.created ? [] : baseline.content.split("\n");
+    const currentLines = stat
+      ? fs.readFileSync(filePath, "utf8").split("\n")
+      : [];
     const hunks = this.diff.compute(baseLines, currentLines);
     if (!hunks.length) {
-      if ((stat && stat.mtimeMs > entry.mtimeMs) || Date.now() - entry.mtimeMs > 86_400_000) this.store.delete(filePath);
+      if (
+        (stat && stat.mtimeMs > entry.mtimeMs) ||
+        Date.now() - entry.mtimeMs > 86_400_000
+      )
+        this.store.delete(filePath);
       return undefined;
     }
 
@@ -68,28 +83,57 @@ export class ReviewService {
       const greenLine = mergedLines.length;
       mergedLines.push(...hunk.newLines);
       // кнопки — с тем же отступом, что и код куска
-      const indent = /^\s*/.exec(hunk.newLines[0] ?? hunk.oldLines[0] ?? '')![0];
+      const indent = /^\s*/.exec(
+        hunk.newLines[0] ?? hunk.oldLines[0] ?? "",
+      )![0];
       const buttonsLine = mergedLines.length;
-      mergedLines.push(indent + ReviewService.acceptLabel + ReviewService.buttonsGap + ReviewService.rejectLabel);
-      blocks.push({ hunk, redLine, greenLine, buttonsLine, buttonsColumn: indent.length });
+      mergedLines.push(
+        indent +
+          ReviewService.acceptLabel +
+          ReviewService.buttonsGap +
+          ReviewService.rejectLabel,
+      );
+      blocks.push({
+        hunk,
+        redLine,
+        greenLine,
+        buttonsLine,
+        buttonsColumn: indent.length,
+        inline: this.inlineChanges(hunk, redLine, greenLine),
+      });
       cursor = hunk.newStart + hunk.newLines.length;
     }
     mergedLines.push(...currentLines.slice(cursor));
-    return { path: filePath, blocks, baseline, baseLines, mergedLines, currentLines };
+    return {
+      path: filePath,
+      blocks,
+      baseline,
+      baseLines,
+      mergedLines,
+      currentLines,
+    };
   }
 
   /** Принять кусок — он становится частью исходника, файл на диске не меняется */
   acceptHunk(review: Review, block: ReviewBlock): void {
     if (review.blocks.length === 1) return this.store.delete(review.path);
     const { hunk } = block;
-    const lines = [...review.baseLines.slice(0, hunk.oldStart), ...hunk.newLines, ...review.baseLines.slice(hunk.oldStart + hunk.oldLines.length)];
-    this.store.write({ ...review.baseline, content: lines.join('\n') });
+    const lines = [
+      ...review.baseLines.slice(0, hunk.oldStart),
+      ...hunk.newLines,
+      ...review.baseLines.slice(hunk.oldStart + hunk.oldLines.length),
+    ];
+    this.store.write({ ...review.baseline, content: lines.join("\n") });
   }
 
   /** Отклонить кусок — в файл на диске возвращаются старые строки */
   rejectHunk(review: Review, block: ReviewBlock): void {
     const { hunk } = block;
-    this.writeFile(review, [...review.currentLines.slice(0, hunk.newStart), ...hunk.oldLines, ...review.currentLines.slice(hunk.newStart + hunk.newLines.length)]);
+    this.writeFile(review, [
+      ...review.currentLines.slice(0, hunk.newStart),
+      ...hunk.oldLines,
+      ...review.currentLines.slice(hunk.newStart + hunk.newLines.length),
+    ]);
     if (review.blocks.length === 1) this.store.delete(review.path);
   }
 
@@ -108,7 +152,9 @@ export class ReviewService {
     for (const { hunk } of review.blocks) {
       if (hunk.newStart > realLine) break;
       // строка с кнопками стоит под зелёными строками, поэтому сдвигает только то, что ниже куска
-      shift += hunk.oldLines.length + (realLine >= hunk.newStart + hunk.newLines.length ? 1 : 0);
+      shift +=
+        hunk.oldLines.length +
+        (realLine >= hunk.newStart + hunk.newLines.length ? 1 : 0);
     }
     return realLine + shift;
   }
@@ -118,8 +164,10 @@ export class ReviewService {
     let shift = 0;
     for (const { hunk, redLine, greenLine, buttonsLine } of review.blocks) {
       if (mergedLine < redLine) break;
-      if (mergedLine < greenLine || mergedLine === buttonsLine) return hunk.newStart;
-      if (mergedLine < buttonsLine) return mergedLine - shift - hunk.oldLines.length;
+      if (mergedLine < greenLine || mergedLine === buttonsLine)
+        return hunk.newStart;
+      if (mergedLine < buttonsLine)
+        return mergedLine - shift - hunk.oldLines.length;
       shift += hunk.oldLines.length + 1;
     }
     return mergedLine - shift;
@@ -128,7 +176,9 @@ export class ReviewService {
   snapshot(filePath: string): FileState {
     return {
       baseline: this.store.read(filePath)?.baseline,
-      content: fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : undefined,
+      content: fs.existsSync(filePath)
+        ? fs.readFileSync(filePath, "utf8")
+        : undefined,
     };
   }
 
@@ -140,9 +190,37 @@ export class ReviewService {
     else fs.writeFileSync(filePath, state.content);
   }
 
+  /** Старые и новые строки куска сопоставляются по порядку — только когда их поровну, иначе пары неизвестны */
+  private inlineChanges(
+    hunk: Hunk,
+    redLine: number,
+    greenLine: number,
+  ): InlineChange[] {
+    if (hunk.oldLines.length !== hunk.newLines.length) return [];
+    return hunk.oldLines.flatMap((oldLine, i) => {
+      const columns = this.diff.changedColumns(oldLine, hunk.newLines[i]);
+      if (!columns) return [];
+      return [
+        {
+          line: redLine + i,
+          start: columns.oldStart,
+          end: columns.oldEnd,
+          removed: true,
+        },
+        {
+          line: greenLine + i,
+          start: columns.newStart,
+          end: columns.newEnd,
+          removed: false,
+        },
+      ];
+    });
+  }
+
   /** Созданный Claude файл, от которого ничего не осталось, удаляется целиком */
   private writeFile(review: Review, lines: string[]): void {
-    if (review.baseline.created && !lines.length) return fs.rmSync(review.path, { force: true });
-    fs.writeFileSync(review.path, lines.join('\n'));
+    if (review.baseline.created && !lines.length)
+      return fs.rmSync(review.path, { force: true });
+    fs.writeFileSync(review.path, lines.join("\n"));
   }
 }
