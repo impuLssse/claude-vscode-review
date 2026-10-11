@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <rect width="256" height="256" rx="48" fill="#1f2328"/>
+  <!-- строка без изменений -->
+  <rect x="40" y="52" width="120" height="16" rx="8" fill="#6e7681"/>
+  <!-- удалённая строка -->
+  <rect x="28" y="90" width="200" height="40" rx="10" fill="#da3633"/>
+  <rect x="44" y="107" width="22" height="6" rx="3" fill="#ffffff"/>
+  <rect x="80" y="104" width="120" height="12" rx="6" fill="#ffffff" fill-opacity="0.55"/>
+  <!-- добавленная строка -->
+  <rect x="28" y="142" width="200" height="40" rx="10" fill="#2ea043"/>
+  <rect x="44" y="159" width="22" height="6" rx="3" fill="#ffffff"/>
+  <rect x="52" y="151" width="6" height="22" rx="3" fill="#ffffff"/>
+  <rect x="80" y="156" width="96" height="12" rx="6" fill="#ffffff" fill-opacity="0.75"/>
+  <!-- строка без изменений -->
+  <rect x="40" y="196" width="88" height="16" rx="8" fill="#6e7681"/>
+</svg>

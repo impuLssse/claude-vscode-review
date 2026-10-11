@@ -1,6 +1,9 @@
 src/
-hook/
 out/test/
 **/*.map
-tsconfig.json
+images/*.svg
 node_modules/
+tsconfig.json
+.prettierrc
+.prettierignore
+.gitignore

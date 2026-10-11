@@ -1,10 +1,35 @@
 {
-  "name": "claude-review",
-  "displayName": "Claude Review",
-  "description": "Ревью правок Claude Code прямо в файле: старое красным, новое зелёным, Accept / Reject на каждый кусок",
-  "version": "0.6.1",
-  "publisher": "local",
-  "license": "UNLICENSED",
+  "name": "diff-inline",
+  "displayName": "Diff Inline (Cursor Based)",
+  "description": "Cursor-style review of Claude Code edits right in the file: old lines in red, new in green, Accept / Reject for every change. Unofficial, not affiliated with Anthropic.",
+  "version": "0.7.0",
+  "publisher": "impuLssse",
+  "license": "MIT",
+  "icon": "images/icon.png",
+  "galleryBanner": {
+    "color": "#1f2328",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/impuLssse/claude-vscode-review.git"
+  },
+  "bugs": {
+    "url": "https://github.com/impuLssse/claude-vscode-review/issues"
+  },
+  "homepage": "https://github.com/impuLssse/claude-vscode-review#readme",
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "claude code",
+    "review",
+    "diff",
+    "accept",
+    "reject",
+    "inline diff",
+    "ai"
+  ],
   "engines": {
     "vscode": "^1.100.0"
   },
@@ -16,67 +41,91 @@
     "commands": [
       {
         "command": "claudeReview.next",
-        "title": "Claude Review: следующая правка"
+        "category": "Diff Inline",
+        "title": "следующая правка"
       },
       {
         "command": "claudeReview.list",
-        "title": "Claude Review: файлы с правками"
+        "category": "Diff Inline",
+        "title": "файлы с правками"
       },
       {
         "command": "claudeReview.undo",
-        "title": "Claude Review: отменить последний Accept / Reject"
+        "category": "Diff Inline",
+        "title": "отменить последний Accept / Reject"
       },
       {
         "command": "claudeReview.save",
-        "title": "Claude Review: сохранить (во вкладке ревью — ничего не делает)"
+        "category": "Diff Inline",
+        "title": "сохранить (во вкладке ревью — ничего не делает)"
       },
       {
         "command": "claudeReview.openFile",
-        "title": "Claude Review: открыть сам файл"
+        "category": "Diff Inline",
+        "title": "открыть сам файл"
       },
       {
         "command": "claudeReview.show",
-        "title": "Claude Review: открыть ревью"
+        "category": "Diff Inline",
+        "title": "открыть ревью"
       },
       {
         "command": "claudeReview.acceptHunk",
-        "title": "Claude Review: принять правку",
+        "category": "Diff Inline",
+        "title": "принять правку",
         "icon": "$(check)"
       },
       {
         "command": "claudeReview.rejectHunk",
-        "title": "Claude Review: отклонить правку",
+        "category": "Diff Inline",
+        "title": "отклонить правку",
         "icon": "$(close)"
       },
       {
         "command": "claudeReview.acceptFile",
-        "title": "Claude Review: принять весь файл",
+        "category": "Diff Inline",
+        "title": "принять весь файл",
         "icon": "$(check)"
       },
       {
         "command": "claudeReview.rejectFile",
-        "title": "Claude Review: отклонить весь файл",
+        "category": "Diff Inline",
+        "title": "отклонить весь файл",
         "icon": "$(close)"
       },
       {
         "command": "claudeReview.acceptAll",
-        "title": "Claude Review: принять все правки",
+        "category": "Diff Inline",
+        "title": "принять все правки",
         "icon": "$(check-all)"
       },
       {
         "command": "claudeReview.viewAsTree",
-        "title": "Claude Review: показать деревом папок",
+        "category": "Diff Inline",
+        "title": "показать деревом папок",
         "icon": "$(list-tree)"
       },
       {
         "command": "claudeReview.viewAsList",
-        "title": "Claude Review: показать списком",
+        "category": "Diff Inline",
+        "title": "показать списком",
         "icon": "$(list-flat)"
       },
       {
         "command": "claudeReview.rejectAll",
-        "title": "Claude Review: отклонить все правки",
+        "category": "Diff Inline",
+        "title": "отклонить все правки",
         "icon": "$(close-all)"
+      },
+      {
+        "command": "claudeReview.connectHook",
+        "category": "Diff Inline",
+        "title": "подключить к Claude Code"
+      },
+      {
+        "command": "claudeReview.disconnectHook",
+        "category": "Diff Inline",
+        "title": "отключить от Claude Code"
       }
     ],
     "views": {
@@ -190,115 +239,115 @@
       {
         "id": "claude-review-typescript",
         "aliases": [
-          "typescript (Claude Review)"
+          "typescript (Diff Inline)"
         ]
       },
       {
         "id": "claude-review-typescriptreact",
         "aliases": [
-          "typescriptreact (Claude Review)"
+          "typescriptreact (Diff Inline)"
         ]
       },
       {
         "id": "claude-review-javascript",
         "aliases": [
-          "javascript (Claude Review)"
+          "javascript (Diff Inline)"
         ]
       },
       {
         "id": "claude-review-javascriptreact",
         "aliases": [
-          "javascriptreact (Claude Review)"
+          "javascriptreact (Diff Inline)"
         ]
       },
       {
         "id": "claude-review-json",
         "aliases": [
-          "json (Claude Review)"
+          "json (Diff Inline)"
         ]
       },
       {
         "id": "claude-review-jsonc",
         "aliases": [
-          "jsonc (Claude Review)"
+          "jsonc (Diff Inline)"
         ]
       },
       {
         "id": "claude-review-python",
         "aliases": [
-          "python (Claude Review)"
+          "python (Diff Inline)"
         ]
       },
       {
         "id": "claude-review-go",
         "aliases": [
-          "go (Claude Review)"
+          "go (Diff Inline)"
         ]
       },
       {
         "id": "claude-review-yaml",
         "aliases": [
-          "yaml (Claude Review)"
+          "yaml (Diff Inline)"
         ]
       },
       {
         "id": "claude-review-shellscript",
         "aliases": [
-          "shellscript (Claude Review)"
+          "shellscript (Diff Inline)"
         ]
       },
       {
         "id": "claude-review-sql",
         "aliases": [
-          "sql (Claude Review)"
+          "sql (Diff Inline)"
         ]
       },
       {
         "id": "claude-review-markdown",
         "aliases": [
-          "markdown (Claude Review)"
+          "markdown (Diff Inline)"
         ]
       },
       {
         "id": "claude-review-css",
         "aliases": [
-          "css (Claude Review)"
+          "css (Diff Inline)"
         ]
       },
       {
         "id": "claude-review-scss",
         "aliases": [
-          "scss (Claude Review)"
+          "scss (Diff Inline)"
         ]
       },
       {
         "id": "claude-review-html",
         "aliases": [
-          "html (Claude Review)"
+          "html (Diff Inline)"
         ]
       },
       {
         "id": "claude-review-dockerfile",
         "aliases": [
-          "dockerfile (Claude Review)"
+          "dockerfile (Diff Inline)"
         ]
       },
       {
         "id": "claude-review-makefile",
         "aliases": [
-          "makefile (Claude Review)"
+          "makefile (Diff Inline)"
         ]
       },
       {
         "id": "claude-review-vue",
         "aliases": [
-          "vue (Claude Review)"
+          "vue (Diff Inline)"
         ]
       },
       {
         "id": "claude-review-ini",
         "aliases": [
-          "ini (Claude Review)"
+          "ini (Diff Inline)"
         ]
       }
     ],
@@ -404,7 +453,7 @@
     "build": "tsc -p .",
     "test": "npm run build && node --test out/test/*.test.js",
     "format": "prettier --write .",
-    "package": "npm run build && vsce package --allow-missing-repository --skip-license -o claude-review.vsix"
+    "package": "npm test && vsce package -o diff-inline.vsix"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
