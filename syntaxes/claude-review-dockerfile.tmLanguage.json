@@ -1,0 +1,8 @@
+{
+  "scopeName": "source.claude-review-dockerfile",
+  "patterns": [
+    {
+      "include": "source.dockerfile"
+    }
+  ]
+}

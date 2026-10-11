@@ -1,0 +1,8 @@
+{
+  "scopeName": "source.claude-review-typescriptreact",
+  "patterns": [
+    {
+      "include": "source.tsx"
+    }
+  ]
+}

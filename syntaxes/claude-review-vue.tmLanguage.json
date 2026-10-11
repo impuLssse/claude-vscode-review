@@ -1,0 +1,8 @@
+{
+  "scopeName": "source.claude-review-vue",
+  "patterns": [
+    {
+      "include": "source.vue"
+    }
+  ]
+}

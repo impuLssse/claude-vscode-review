@@ -1,0 +1,5 @@
+src/
+hook/
+**/*.map
+tsconfig.json
+node_modules/

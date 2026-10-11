@@ -1,0 +1,8 @@
+{
+  "scopeName": "source.claude-review-go",
+  "patterns": [
+    {
+      "include": "source.go"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "scopeName": "source.claude-review-javascript",
+  "patterns": [
+    {
+      "include": "source.js"
+    }
+  ]
+}

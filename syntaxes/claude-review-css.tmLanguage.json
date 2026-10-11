@@ -1,0 +1,8 @@
+{
+  "scopeName": "source.claude-review-css",
+  "patterns": [
+    {
+      "include": "source.css"
+    }
+  ]
+}

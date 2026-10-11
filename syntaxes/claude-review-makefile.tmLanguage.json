@@ -1,0 +1,8 @@
+{
+  "scopeName": "source.claude-review-makefile",
+  "patterns": [
+    {
+      "include": "source.makefile"
+    }
+  ]
+}

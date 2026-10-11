@@ -1,0 +1,8 @@
+{
+  "scopeName": "source.claude-review-ini",
+  "patterns": [
+    {
+      "include": "source.ini"
+    }
+  ]
+}

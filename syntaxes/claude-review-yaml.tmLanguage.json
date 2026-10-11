@@ -1,0 +1,8 @@
+{
+  "scopeName": "source.claude-review-yaml",
+  "patterns": [
+    {
+      "include": "source.yaml"
+    }
+  ]
+}

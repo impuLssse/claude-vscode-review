@@ -1,0 +1,403 @@
+{
+  "name": "claude-review",
+  "displayName": "Claude Review",
+  "description": "Ревью правок Claude Code прямо в файле: старое красным, новое зелёным, Accept / Reject на каждый кусок",
+  "version": "0.5.0",
+  "publisher": "local",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "claudeReview.next",
+        "title": "Claude Review: следующая правка"
+      },
+      {
+        "command": "claudeReview.list",
+        "title": "Claude Review: файлы с правками"
+      },
+      {
+        "command": "claudeReview.undo",
+        "title": "Claude Review: отменить последний Accept / Reject"
+      },
+      {
+        "command": "claudeReview.openFile",
+        "title": "Claude Review: открыть сам файл"
+      },
+      {
+        "command": "claudeReview.show",
+        "title": "Claude Review: открыть ревью"
+      },
+      {
+        "command": "claudeReview.acceptHunk",
+        "title": "Claude Review: принять правку",
+        "icon": "$(check)"
+      },
+      {
+        "command": "claudeReview.rejectHunk",
+        "title": "Claude Review: отклонить правку",
+        "icon": "$(close)"
+      },
+      {
+        "command": "claudeReview.acceptFile",
+        "title": "Claude Review: принять весь файл",
+        "icon": "$(check)"
+      },
+      {
+        "command": "claudeReview.rejectFile",
+        "title": "Claude Review: отклонить весь файл",
+        "icon": "$(close)"
+      },
+      {
+        "command": "claudeReview.acceptAll",
+        "title": "Claude Review: принять все правки",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "claudeReview.viewAsTree",
+        "title": "Claude Review: показать деревом папок",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "claudeReview.viewAsList",
+        "title": "Claude Review: показать списком",
+        "icon": "$(list-flat)"
+      },
+      {
+        "command": "claudeReview.rejectAll",
+        "title": "Claude Review: отклонить все правки",
+        "icon": "$(close-all)"
+      }
+    ],
+    "views": {
+      "claude-sidebar-secondary": [
+        {
+          "id": "claudeReview.changes",
+          "name": "Правки Claude",
+          "when": "!claude-code:doesNotSupportSecondarySidebar"
+        }
+      ],
+      "claude-sidebar": [
+        {
+          "id": "claudeReview.changesSidebar",
+          "name": "Правки Claude",
+          "when": "claude-code:doesNotSupportSecondarySidebar"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "claudeReview.viewAsTree",
+          "group": "navigation@0",
+          "when": "view =~ /^claudeReview\\.changes/ && !claudeReview.treeMode"
+        },
+        {
+          "command": "claudeReview.viewAsList",
+          "group": "navigation@0",
+          "when": "view =~ /^claudeReview\\.changes/ && claudeReview.treeMode"
+        },
+        {
+          "command": "claudeReview.rejectAll",
+          "group": "navigation@1",
+          "when": "view =~ /^claudeReview\\.changes/"
+        },
+        {
+          "command": "claudeReview.acceptAll",
+          "group": "navigation@2",
+          "when": "view =~ /^claudeReview\\.changes/"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "claudeReview.rejectFile",
+          "group": "inline@1",
+          "when": "view =~ /^claudeReview\\.changes/ && viewItem == file"
+        },
+        {
+          "command": "claudeReview.acceptFile",
+          "group": "inline@2",
+          "when": "view =~ /^claudeReview\\.changes/ && viewItem == file"
+        },
+        {
+          "command": "claudeReview.rejectHunk",
+          "group": "inline@1",
+          "when": "view =~ /^claudeReview\\.changes/ && viewItem == hunk"
+        },
+        {
+          "command": "claudeReview.acceptHunk",
+          "group": "inline@2",
+          "when": "view =~ /^claudeReview\\.changes/ && viewItem == hunk"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "claudeReview.show",
+          "when": "false"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "key": "alt+y",
+        "command": "claudeReview.acceptHunk",
+        "when": "editorTextFocus && resourceScheme == claude-review"
+      },
+      {
+        "key": "alt+n",
+        "command": "claudeReview.rejectHunk",
+        "when": "editorTextFocus && resourceScheme == claude-review"
+      },
+      {
+        "key": "alt+shift+y",
+        "command": "claudeReview.acceptFile",
+        "when": "editorTextFocus && resourceScheme == claude-review"
+      },
+      {
+        "key": "alt+shift+n",
+        "command": "claudeReview.rejectFile",
+        "when": "editorTextFocus && resourceScheme == claude-review"
+      },
+      {
+        "key": "ctrl+z",
+        "mac": "cmd+z",
+        "command": "claudeReview.undo",
+        "when": "editorTextFocus && (resourceScheme == claude-review || resource in claudeReview.undoResources)"
+      },
+      {
+        "key": "alt+j",
+        "command": "claudeReview.next",
+        "when": "editorTextFocus"
+      }
+    ],
+    "languages": [
+      {
+        "id": "claude-review-typescript",
+        "aliases": [
+          "typescript (Claude Review)"
+        ]
+      },
+      {
+        "id": "claude-review-typescriptreact",
+        "aliases": [
+          "typescriptreact (Claude Review)"
+        ]
+      },
+      {
+        "id": "claude-review-javascript",
+        "aliases": [
+          "javascript (Claude Review)"
+        ]
+      },
+      {
+        "id": "claude-review-javascriptreact",
+        "aliases": [
+          "javascriptreact (Claude Review)"
+        ]
+      },
+      {
+        "id": "claude-review-json",
+        "aliases": [
+          "json (Claude Review)"
+        ]
+      },
+      {
+        "id": "claude-review-jsonc",
+        "aliases": [
+          "jsonc (Claude Review)"
+        ]
+      },
+      {
+        "id": "claude-review-python",
+        "aliases": [
+          "python (Claude Review)"
+        ]
+      },
+      {
+        "id": "claude-review-go",
+        "aliases": [
+          "go (Claude Review)"
+        ]
+      },
+      {
+        "id": "claude-review-yaml",
+        "aliases": [
+          "yaml (Claude Review)"
+        ]
+      },
+      {
+        "id": "claude-review-shellscript",
+        "aliases": [
+          "shellscript (Claude Review)"
+        ]
+      },
+      {
+        "id": "claude-review-sql",
+        "aliases": [
+          "sql (Claude Review)"
+        ]
+      },
+      {
+        "id": "claude-review-markdown",
+        "aliases": [
+          "markdown (Claude Review)"
+        ]
+      },
+      {
+        "id": "claude-review-css",
+        "aliases": [
+          "css (Claude Review)"
+        ]
+      },
+      {
+        "id": "claude-review-scss",
+        "aliases": [
+          "scss (Claude Review)"
+        ]
+      },
+      {
+        "id": "claude-review-html",
+        "aliases": [
+          "html (Claude Review)"
+        ]
+      },
+      {
+        "id": "claude-review-dockerfile",
+        "aliases": [
+          "dockerfile (Claude Review)"
+        ]
+      },
+      {
+        "id": "claude-review-makefile",
+        "aliases": [
+          "makefile (Claude Review)"
+        ]
+      },
+      {
+        "id": "claude-review-vue",
+        "aliases": [
+          "vue (Claude Review)"
+        ]
+      },
+      {
+        "id": "claude-review-ini",
+        "aliases": [
+          "ini (Claude Review)"
+        ]
+      }
+    ],
+    "grammars": [
+      {
+        "language": "claude-review-typescript",
+        "scopeName": "source.claude-review-typescript",
+        "path": "./syntaxes/claude-review-typescript.tmLanguage.json"
+      },
+      {
+        "language": "claude-review-typescriptreact",
+        "scopeName": "source.claude-review-typescriptreact",
+        "path": "./syntaxes/claude-review-typescriptreact.tmLanguage.json"
+      },
+      {
+        "language": "claude-review-javascript",
+        "scopeName": "source.claude-review-javascript",
+        "path": "./syntaxes/claude-review-javascript.tmLanguage.json"
+      },
+      {
+        "language": "claude-review-javascriptreact",
+        "scopeName": "source.claude-review-javascriptreact",
+        "path": "./syntaxes/claude-review-javascriptreact.tmLanguage.json"
+      },
+      {
+        "language": "claude-review-json",
+        "scopeName": "source.claude-review-json",
+        "path": "./syntaxes/claude-review-json.tmLanguage.json"
+      },
+      {
+        "language": "claude-review-jsonc",
+        "scopeName": "source.claude-review-jsonc",
+        "path": "./syntaxes/claude-review-jsonc.tmLanguage.json"
+      },
+      {
+        "language": "claude-review-python",
+        "scopeName": "source.claude-review-python",
+        "path": "./syntaxes/claude-review-python.tmLanguage.json"
+      },
+      {
+        "language": "claude-review-go",
+        "scopeName": "source.claude-review-go",
+        "path": "./syntaxes/claude-review-go.tmLanguage.json"
+      },
+      {
+        "language": "claude-review-yaml",
+        "scopeName": "source.claude-review-yaml",
+        "path": "./syntaxes/claude-review-yaml.tmLanguage.json"
+      },
+      {
+        "language": "claude-review-shellscript",
+        "scopeName": "source.claude-review-shellscript",
+        "path": "./syntaxes/claude-review-shellscript.tmLanguage.json"
+      },
+      {
+        "language": "claude-review-sql",
+        "scopeName": "source.claude-review-sql",
+        "path": "./syntaxes/claude-review-sql.tmLanguage.json"
+      },
+      {
+        "language": "claude-review-markdown",
+        "scopeName": "source.claude-review-markdown",
+        "path": "./syntaxes/claude-review-markdown.tmLanguage.json"
+      },
+      {
+        "language": "claude-review-css",
+        "scopeName": "source.claude-review-css",
+        "path": "./syntaxes/claude-review-css.tmLanguage.json"
+      },
+      {
+        "language": "claude-review-scss",
+        "scopeName": "source.claude-review-scss",
+        "path": "./syntaxes/claude-review-scss.tmLanguage.json"
+      },
+      {
+        "language": "claude-review-html",
+        "scopeName": "source.claude-review-html",
+        "path": "./syntaxes/claude-review-html.tmLanguage.json"
+      },
+      {
+        "language": "claude-review-dockerfile",
+        "scopeName": "source.claude-review-dockerfile",
+        "path": "./syntaxes/claude-review-dockerfile.tmLanguage.json"
+      },
+      {
+        "language": "claude-review-makefile",
+        "scopeName": "source.claude-review-makefile",
+        "path": "./syntaxes/claude-review-makefile.tmLanguage.json"
+      },
+      {
+        "language": "claude-review-vue",
+        "scopeName": "source.claude-review-vue",
+        "path": "./syntaxes/claude-review-vue.tmLanguage.json"
+      },
+      {
+        "language": "claude-review-ini",
+        "scopeName": "source.claude-review-ini",
+        "path": "./syntaxes/claude-review-ini.tmLanguage.json"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "package": "npm run build && vsce package --allow-missing-repository --skip-license -o claude-review.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "~1.100.0",
+    "@vscode/vsce": "^3.0.0",
+    "typescript": "~5.9.0"
+  }
+}

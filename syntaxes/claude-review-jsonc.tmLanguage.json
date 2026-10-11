@@ -1,0 +1,8 @@
+{
+  "scopeName": "source.claude-review-jsonc",
+  "patterns": [
+    {
+      "include": "source.json.comments"
+    }
+  ]
+}
