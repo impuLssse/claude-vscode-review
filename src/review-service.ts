@@ -173,6 +173,113 @@ export class ReviewService {
     return mergedLine - shift;
   }
 
+  /**
+   * Сохранить отредактированную вкладку ревью в файл: красные строки и кнопки выбрасываются, остальное пишется как набрано.
+   * Строки кнопок — опоры: между соседними лежат неизменённые строки, красные и зелёные куска. Красные ищутся в этом отрезке
+   * целиком; если вхождений несколько — берётся то, что ближе к прежнему месту. Кнопок стало не столько, сколько кусков,
+   * или красных строк в отрезке нет — их правили, тогда файл не трогаем и возвращаем false
+   */
+  saveEdited(review: Review, shownLines: string[]): boolean {
+    const buttons = (
+      ReviewService.acceptLabel +
+      ReviewService.buttonsGap +
+      ReviewService.rejectLabel
+    ).trim();
+    const anchors = shownLines.flatMap((line, i) =>
+      line.trim() === buttons ? [i] : [],
+    );
+    if (anchors.length !== review.blocks.length) return false;
+    const lines: string[] = [];
+    let start = 0;
+    let mergedStart = 0;
+    for (const [i, { hunk, redLine, buttonsLine }] of review.blocks.entries()) {
+      const segment = shownLines.slice(start, anchors[i]);
+      const red = hunk.oldLines;
+      // сколько было неизменённых строк до красных и зелёных после них
+      const before = redLine - mergedStart;
+      const after = buttonsLine - redLine - red.length;
+      let found = -1;
+      let foundShift = Infinity;
+      for (let p = 0; p + red.length <= segment.length; p++) {
+        if (red.some((line, j) => segment[p + j] !== line)) continue;
+        const shift = Math.min(
+          Math.abs(p - before),
+          Math.abs(segment.length - p - red.length - after),
+        );
+        if (shift >= foundShift) continue;
+        found = p;
+        foundShift = shift;
+      }
+      if (found === -1) return false;
+      lines.push(
+        ...segment.slice(0, found),
+        ...segment.slice(found + red.length),
+      );
+      start = anchors[i] + 1;
+      mergedStart = buttonsLine + 1;
+    }
+    this.writeFile(review, [...lines, ...shownLines.slice(start)]);
+    return true;
+  }
+
+  /**
+   * Раскраска по смыслу (семантические токены) настоящего файла, перенесённая на строки вкладки ревью.
+   * Строки сопоставляются диффом, поэтому перенос верен и пока вкладку правят; красные строки и кнопки
+   * в настоящем файле не встречаются и остаются с обычной раскраской. Токен — пять чисел:
+   * сдвиг строки, сдвиг колонки (от прошлого токена на той же строке), длина, тип, модификаторы
+   */
+  shownTokens(
+    realLines: string[],
+    shownLines: string[],
+    tokens: Uint32Array,
+  ): Uint32Array {
+    const shownLine = this.sameLines(realLines, shownLines);
+
+    const data: number[] = [];
+    let line = 0;
+    let column = 0;
+    let lastLine = 0;
+    let lastColumn = 0;
+    for (let i = 0; i < tokens.length; i += 5) {
+      line += tokens[i];
+      column = tokens[i] ? tokens[i + 1] : column + tokens[i + 1];
+      const target = shownLine.get(line);
+      if (target === undefined) continue;
+      data.push(
+        target - lastLine,
+        target === lastLine ? column - lastColumn : column,
+        tokens[i + 2],
+        tokens[i + 3],
+        tokens[i + 4],
+      );
+      lastLine = target;
+      lastColumn = column;
+    }
+    return new Uint32Array(data);
+  }
+
+  /**
+   * Одинаковые строки двух текстов по диффу: номер строки в from → номер в to. Так вкладка ревью и настоящий файл
+   * сопоставляются и пока вкладку правят; красных строк и кнопок в настоящем файле нет — их в карте тоже нет
+   */
+  sameLines(fromLines: string[], toLines: string[]): Map<number, number> {
+    const lines = new Map<number, number>();
+    let from = 0;
+    let to = 0;
+    const end: Hunk = {
+      oldStart: fromLines.length,
+      newStart: toLines.length,
+      oldLines: [],
+      newLines: [],
+    };
+    for (const hunk of [...this.diff.compute(fromLines, toLines), end]) {
+      while (from < hunk.oldStart) lines.set(from++, to++);
+      from += hunk.oldLines.length;
+      to += hunk.newLines.length;
+    }
+    return lines;
+  }
+
   snapshot(filePath: string): FileState {
     return {
       baseline: this.store.read(filePath)?.baseline,

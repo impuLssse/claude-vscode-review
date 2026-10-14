@@ -19,17 +19,25 @@ interface UndoStep {
 
 /**
  * Вкладка ревью вместо самого файла: когда открываешь файл с правками Claude, она встаёт на место его вкладки.
- * В ней текст файла, где над новыми строками (зелёные) вклеены старые (красные), а над каждым куском — Accept / Reject.
- * Вкладка только для чтения, поэтому автосохранение и TypeScript её не трогают; на диск пишет только Reject
+ * В ней текст файла, где над новыми строками (зелёные) вклеены старые (красные), а под каждым куском — Accept / Reject.
+ * Вкладка — файл своей файловой системы claude-review: её можно править, а при сохранении красные строки и кнопки
+ * выбрасываются и остальное пишется в настоящий файл. Твои правки становятся зелёными кусками рядом с правками Claude
  */
 export class ReviewController
-  implements vscode.TextDocumentContentProvider, vscode.CodeLensProvider
+  implements
+    vscode.FileSystemProvider,
+    vscode.HoverProvider,
+    vscode.CodeLensProvider,
+    vscode.DefinitionProvider,
+    vscode.DocumentSemanticTokensProvider
 {
   private static readonly scheme = "claude-review";
 
-  private readonly changed = new vscode.EventEmitter<vscode.Uri>();
+  private readonly changed = new vscode.EventEmitter<
+    vscode.FileChangeEvent[]
+  >();
   private readonly lensesChanged = new vscode.EventEmitter<void>();
-  readonly onDidChange = this.changed.event;
+  readonly onDidChangeFile = this.changed.event;
   readonly onDidChangeCodeLenses = this.lensesChanged.event;
 
   /** Ревью всех файлов с правками по последнему опросу — для списка правок, строки состояния и перехода к следующему файлу */
@@ -46,6 +54,12 @@ export class ReviewController
   private finishedMtime: number;
   /** mtime исходника и файла на прошлом опросе — по ним видно, что пора перерисовать */
   private signatures = new Map<string, string>();
+  /** Языки, для которых уже подключена раскраска по смыслу из настоящего файла */
+  private readonly tokenLanguages = new Set<string>();
+  /** Размер только что сохранённого текста вкладки — его получит stat сразу после сохранения, см. stat */
+  private readonly savedSizes = new Map<string, number>();
+  /** Подписки расширения — туда же уходят провайдеры раскраски, подключённые позже */
+  private subscriptions: vscode.Disposable[] = [];
 
   private readonly statusBar = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
@@ -106,6 +120,7 @@ export class ReviewController
   register(context: vscode.ExtensionContext): void {
     const scheme = ReviewController.scheme;
     const timer = setInterval(() => this.poll(), 1000);
+    this.subscriptions = context.subscriptions;
     this.statusBar.command = "claudeReview.list";
     this.statusBar.tooltip = "Файлы с непросмотренными правками Claude";
     context.subscriptions.push(
@@ -119,17 +134,14 @@ export class ReviewController
       this.rejectButton,
       this.lensesChanged,
       { dispose: () => clearInterval(timer) },
+      vscode.languages.registerHoverProvider({ scheme }, this),
       vscode.languages.registerCodeLensProvider({ scheme }, this),
-      vscode.workspace.registerTextDocumentContentProvider(scheme, this),
+      vscode.languages.registerDefinitionProvider({ scheme }, this),
+      vscode.workspace.registerFileSystemProvider(scheme, this, {
+        isCaseSensitive: true,
+      }),
       vscode.commands.registerCommand("claudeReview.next", () => this.next()),
       vscode.commands.registerCommand("claudeReview.undo", () => this.undo()),
-      // Cmd+S во вкладке ревью: VS Code не знает, куда сохранять виртуальный документ, и открыл бы «Сохранить как»
-      vscode.commands.registerCommand("claudeReview.save", () =>
-        vscode.window.setStatusBarMessage(
-          "Вкладка ревью: сохранять нечего — файл на диске уже актуален",
-          2500,
-        ),
-      ),
       vscode.commands.registerCommand("claudeReview.list", () => this.list()),
       vscode.commands.registerCommand("claudeReview.acceptAll", () =>
         this.acceptAll(),
@@ -184,10 +196,18 @@ export class ReviewController
       vscode.window.onDidChangeTextEditorSelection((event) =>
         this.onButtonClick(event),
       ),
+      // сохранение закончилось — вкладка перечитывается: твои строки стали зелёными кусками со своими кнопками
+      vscode.workspace.onDidSaveTextDocument(
+        ({ uri }) =>
+          uri.scheme === ReviewController.scheme && this.refresh(uri.fsPath),
+      ),
+      vscode.workspace.onDidOpenTextDocument((document) =>
+        this.useTwinLanguage(document),
+      ),
       vscode.workspace.onDidChangeTextDocument(({ document }) =>
         this.onReviewChanged(document),
       ),
-      // начал печатать в самом файле — Cmd+Z снова обычная отмена набора, а не откат ревью
+      // начал печатать в самом файле или во вкладке ревью — Cmd+Z снова обычная отмена набора, а не откат ревью
       vscode.workspace.onDidChangeTextDocument(
         ({ document }) =>
           document.isDirty && this.dropUndo(document.uri.fsPath),
@@ -196,18 +216,174 @@ export class ReviewController
     this.tree.register(context);
     this.updateUndoContext();
     this.poll();
+    vscode.workspace.textDocuments.forEach((document) =>
+      this.useTwinLanguage(document),
+    );
     this.swapToReview(vscode.window.activeTextEditor);
   }
 
-  provideTextDocumentContent(uri: vscode.Uri): string {
+  readFile(uri: vscode.Uri): Uint8Array {
     const filePath = uri.fsPath;
     const review = this.service.load(filePath);
     if (!review) {
       this.rendered.delete(filePath);
-      return fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : "";
+      return fs.existsSync(filePath)
+        ? fs.readFileSync(filePath)
+        : Buffer.from("");
     }
     this.rendered.set(filePath, review);
-    return review.mergedLines.join("\n");
+    return Buffer.from(review.mergedLines.join("\n"));
+  }
+
+  /**
+   * mtime — самый свежий из файла и его исходника, size — длина текста вкладки: по ним VS Code понимает,
+   * что вкладку пора перечитать, и замечает, что файл поменялся, пока во вкладке были несохранённые правки.
+   * Сразу после сохранения VS Code запоминает stat как «то, что сейчас во вкладке», а там сохранённый текст,
+   * а не новое ревью. Поэтому первый stat после сохранения отдаёт размер сохранённого текста — иначе
+   * следующий stat совпал бы с ним и VS Code не стал бы перечитывать вкладку
+   */
+  stat(uri: vscode.Uri): vscode.FileStat {
+    const filePath = uri.fsPath;
+    const stat = fs.statSync(filePath, { throwIfNoEntry: false });
+    const text = this.service.load(filePath)?.mergedLines.join("\n");
+    const savedSize = this.savedSizes.get(filePath);
+    this.savedSizes.delete(filePath);
+    return {
+      ctime: 0,
+      type: vscode.FileType.File,
+      size:
+        savedSize ??
+        (text === undefined ? (stat?.size ?? 0) : Buffer.byteLength(text)),
+      mtime: Math.max(
+        stat?.mtimeMs ?? 0,
+        this.store.read(filePath)?.mtimeMs ?? 0,
+      ),
+    };
+  }
+
+  /** Cmd+S во вкладке ревью: красные строки и кнопки выбрасываются, остальное уходит в настоящий файл */
+  writeFile(uri: vscode.Uri, content: Uint8Array): void {
+    const filePath = uri.fsPath;
+    const review = this.rendered.get(filePath);
+    if (!review) return fs.writeFileSync(filePath, content);
+    if (
+      this.service.load(filePath)?.mergedLines.join("\n") !==
+      review.mergedLines.join("\n")
+    )
+      throw vscode.FileSystemError.Unavailable(
+        "Файл поменялся на диске, пока ты правил вкладку ревью — скопируй свои правки и открой вкладку заново",
+      );
+    if (
+      !this.service.saveEdited(
+        review,
+        Buffer.from(content).toString("utf8").split("\n"),
+      )
+    )
+      throw vscode.FileSystemError.NoPermissions(
+        "Красные строки и кнопки Accept / Reject менять нельзя — верни их (Cmd+Z) и сохрани снова",
+      );
+    this.savedSizes.set(filePath, content.byteLength);
+    // если текст вкладки после сохранения не поменялся, VS Code её не перечитает — новое ревью запоминаем сразу
+    const saved = this.service.load(filePath);
+    if (saved) this.rendered.set(filePath, saved);
+    else this.rendered.delete(filePath);
+  }
+
+  watch(): vscode.Disposable {
+    return new vscode.Disposable(() => undefined);
+  }
+
+  readDirectory(): [string, vscode.FileType][] {
+    throw vscode.FileSystemError.NoPermissions();
+  }
+
+  createDirectory(): void {
+    throw vscode.FileSystemError.NoPermissions();
+  }
+
+  delete(): void {
+    throw vscode.FileSystemError.NoPermissions();
+  }
+
+  rename(): void {
+    throw vscode.FileSystemError.NoPermissions();
+  }
+
+  /** Раскраска по смыслу во вкладке ревью — та же, что у настоящего файла, со сдвигом на вклеенные строки */
+  async provideDocumentSemanticTokens(
+    document: vscode.TextDocument,
+  ): Promise<vscode.SemanticTokens | undefined> {
+    const real = await vscode.workspace.openTextDocument(
+      vscode.Uri.file(document.uri.fsPath),
+    );
+    const tokens = await vscode.commands.executeCommand<
+      vscode.SemanticTokens | undefined
+    >("vscode.provideDocumentSemanticTokens", real.uri);
+    if (!tokens) return undefined;
+    return new vscode.SemanticTokens(
+      this.service.shownTokens(
+        this.lines(real),
+        this.lines(document),
+        tokens.data,
+      ),
+    );
+  }
+
+  /** Подсказка при наведении — та же, что в настоящем файле; на красных строках и кнопках её нет */
+  async provideHover(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+  ): Promise<vscode.Hover | undefined> {
+    const real = await this.realPosition(document, position);
+    if (!real) return undefined;
+    const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
+      "vscode.executeHoverProvider",
+      real.uri,
+      real.position,
+    );
+    if (!hovers.length) return undefined;
+    // подсказки всех расширений сразу (тип, документация, ошибки); диапазон — свой, у настоящего файла другие строки
+    return new vscode.Hover(
+      hovers.flatMap(({ contents }) => contents),
+      document.getWordRangeAtPosition(position),
+    );
+  }
+
+  /** Cmd+клик — к определению в настоящем файле; если оно в этом же файле, его вкладка сама подменится ревью */
+  async provideDefinition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+  ): Promise<vscode.Location[] | vscode.LocationLink[]> {
+    const real = await this.realPosition(document, position);
+    if (!real) return [];
+    return vscode.commands.executeCommand<
+      vscode.Location[] | vscode.LocationLink[]
+    >("vscode.executeDefinitionProvider", real.uri, real.position);
+  }
+
+  /** Место во вкладке ревью → то же место в настоящем файле; у красных строк и кнопок его нет */
+  private async realPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+  ): Promise<{ uri: vscode.Uri; position: vscode.Position } | undefined> {
+    const real = await vscode.workspace.openTextDocument(
+      vscode.Uri.file(document.uri.fsPath),
+    );
+    const line = this.service
+      .sameLines(this.lines(document), this.lines(real))
+      .get(position.line);
+    if (line === undefined) return undefined;
+    return {
+      uri: real.uri,
+      position: new vscode.Position(line, position.character),
+    };
+  }
+
+  private lines(document: vscode.TextDocument): string[] {
+    return Array.from(
+      { length: document.lineCount },
+      (_, i) => document.lineAt(i).text,
+    );
   }
 
   provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
@@ -240,7 +416,7 @@ export class ReviewController
 
   private acceptHunk(filePath?: string, index?: number): void {
     const target = this.targetBlock(filePath, index);
-    if (!target) return;
+    if (!target || this.unsaved(target.review.path)) return;
     this.recordUndo(target.review.path, target.index, () =>
       this.service.acceptHunk(target.review, target.block),
     );
@@ -248,7 +424,7 @@ export class ReviewController
 
   private rejectHunk(filePath?: string, index?: number): void {
     const target = this.targetBlock(filePath, index);
-    if (!target || this.realFileDirty(target.review.path)) return;
+    if (!target || this.unsaved(target.review.path)) return;
     this.recordUndo(target.review.path, target.index, () =>
       this.service.rejectHunk(target.review, target.block),
     );
@@ -256,13 +432,13 @@ export class ReviewController
 
   private acceptFile(filePath?: string): void {
     const review = this.targetReview(filePath);
-    if (!review) return;
+    if (!review || this.unsaved(review.path)) return;
     this.recordUndo(review.path, 0, () => this.service.acceptFile(review));
   }
 
   private async rejectFile(filePath?: string): Promise<void> {
     const review = this.targetReview(filePath);
-    if (!review || this.realFileDirty(review.path)) return;
+    if (!review || this.unsaved(review.path)) return;
     const name = path.basename(review.path);
     const answer = await vscode.window.showWarningMessage(
       `Отклонить все правки Claude в ${name} (${review.blocks.length})?`,
@@ -275,7 +451,9 @@ export class ReviewController
 
   /** Принять всё во всех файлах; Cmd+Z в каждом файле потом откатывает его отдельно */
   private acceptAll(): void {
-    for (const review of [...this.reviews.values()])
+    const reviews = [...this.reviews.values()];
+    if (reviews.some(({ path: filePath }) => this.unsaved(filePath))) return;
+    for (const review of reviews)
       this.recordUndo(review.path, 0, () => this.service.acceptFile(review));
   }
 
@@ -283,7 +461,7 @@ export class ReviewController
     const reviews = [...this.reviews.values()];
     if (
       !reviews.length ||
-      reviews.some(({ path: filePath }) => this.realFileDirty(filePath))
+      reviews.some(({ path: filePath }) => this.unsaved(filePath))
     )
       return;
     const answer = await vscode.window.showWarningMessage(
@@ -352,7 +530,10 @@ export class ReviewController
   private updateUndoContext(): void {
     const resources = [...this.undoSteps.entries()]
       .filter(([, steps]) => steps.length)
-      .map(([filePath]) => vscode.Uri.file(filePath).toString());
+      .flatMap(([filePath]) => [
+        vscode.Uri.file(filePath).toString(),
+        this.reviewUri(filePath).toString(),
+      ]);
     this.memento.update(
       "claudeReview.undo",
       Object.fromEntries(this.undoSteps),
@@ -478,11 +659,16 @@ export class ReviewController
     return undefined;
   }
 
-  /** Reject пишет файл на диск; несохранённые правки в открытом файле он бы затёр */
-  private realFileDirty(filePath: string): boolean {
+  /**
+   * Reject пишет файл на диск — несохранённые правки в открытом файле он бы затёр.
+   * А пока вкладка ревью не сохранена, строки в ней сдвинуты и кнопки уже не там, где их видит Accept / Reject
+   */
+  private unsaved(filePath: string): boolean {
     const dirty = vscode.workspace.textDocuments.some(
       ({ uri, isDirty }) =>
-        uri.scheme === "file" && uri.fsPath === filePath && isDirty,
+        (uri.scheme === "file" || uri.scheme === ReviewController.scheme) &&
+        uri.fsPath === filePath &&
+        isDirty,
     );
     if (dirty)
       vscode.window.showWarningMessage(
@@ -493,7 +679,7 @@ export class ReviewController
 
   private refresh(filePath: string, focusIndex?: number): void {
     if (focusIndex !== undefined) this.focusIndex.set(filePath, focusIndex);
-    this.changed.fire(this.reviewUri(filePath));
+    this.reload(filePath);
     this.poll();
   }
 
@@ -607,17 +793,7 @@ export class ReviewController
         ? (await vscode.workspace.openTextDocument(vscode.Uri.file(filePath)))
             .languageId
         : undefined);
-    // язык-двойник из syntaxes/: та же раскраска, но TypeScript и линтеры не подчёркивают вклеенные старые строки и кнопки
-    const language = (await vscode.languages.getLanguages()).includes(
-      `claude-review-${realLanguage}`,
-    )
-      ? `claude-review-${realLanguage}`
-      : realLanguage;
-    if (language && document.languageId !== language)
-      document = await vscode.languages.setTextDocumentLanguage(
-        document,
-        language,
-      );
+    document = await this.useTwinLanguage(document, realLanguage);
     const position = new vscode.Position(line, 0);
     const editor = await vscode.window.showTextDocument(document, {
       viewColumn,
@@ -630,7 +806,68 @@ export class ReviewController
     );
     this.decorate(editor);
     // документ мог остаться открытым со старым текстом — пусть перечитается
-    this.changed.fire(uri);
+    this.reload(filePath);
+  }
+
+  /**
+   * Язык-двойник из syntaxes/: та же раскраска, но TypeScript и линтеры не подчёркивают вклеенные старые строки и кнопки
+   * Ставится любому документу вкладки ревью — и тем, что VS Code сам восстановил после перезагрузки окна:
+   * им язык подобран по расширению файла, и без двойника TypeScript проверял бы их как обычный код
+   */
+  private async useTwinLanguage(
+    document: vscode.TextDocument,
+    languageId = document.languageId,
+  ): Promise<vscode.TextDocument> {
+    if (
+      document.uri.scheme !== ReviewController.scheme ||
+      languageId.startsWith("claude-review-")
+    )
+      return document;
+    const twin = `claude-review-${languageId}`;
+    const language = (await vscode.languages.getLanguages()).includes(twin)
+      ? twin
+      : languageId;
+    if (document.languageId !== language)
+      document = await vscode.languages.setTextDocumentLanguage(
+        document,
+        language,
+      );
+    if (fs.existsSync(document.uri.fsPath))
+      await this.registerTokens(document.languageId, document.uri.fsPath);
+    return document;
+  }
+
+  /** Вкладка ревью перечитывается — VS Code заново вызовет readFile */
+  private reload(filePath: string): void {
+    this.changed.fire([
+      { type: vscode.FileChangeType.Changed, uri: this.reviewUri(filePath) },
+    ]);
+  }
+
+  /**
+   * Раскраску по смыслу даёт расширение языка, у каждого — свой список типов токенов (легенда)
+   * Поэтому провайдер подключается на язык при первой вкладке ревью с ним; нет легенды — язык ещё не готов, попробуем в следующий раз
+   */
+  private async registerTokens(
+    language: string,
+    filePath: string,
+  ): Promise<void> {
+    if (this.tokenLanguages.has(language)) return;
+    this.tokenLanguages.add(language);
+    const legend = await vscode.commands.executeCommand<
+      vscode.SemanticTokensLegend | undefined
+    >("vscode.provideDocumentSemanticTokensLegend", vscode.Uri.file(filePath));
+    if (!legend) {
+      this.tokenLanguages.delete(language);
+      return;
+    }
+    this.subscriptions.push(
+      vscode.languages.registerDocumentSemanticTokensProvider(
+        { scheme: ReviewController.scheme, language },
+        this,
+        legend,
+      ),
+    );
   }
 
   /** Правок в файле не осталось — вкладки ревью закрываются, на месте активной открывается сам файл */
@@ -791,7 +1028,7 @@ export class ReviewController
         this.reviews.delete(filePath);
         this.suppressed.delete(filePath);
       }
-      this.changed.fire(this.reviewUri(filePath));
+      this.reload(filePath);
       if (
         active?.document.uri.scheme === "file" &&
         active.document.uri.fsPath === filePath

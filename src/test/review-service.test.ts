@@ -121,6 +121,48 @@ describe("ReviewService", () => {
     assert.deepEqual(box.service.snapshot(box.file), state);
   });
 
+  it("сохранение вкладки: красные строки и кнопки выброшены, свои правки в файле", () => {
+    const review = box.service.load(box.file)!;
+    const shown = [...review.mergedLines];
+    shown[2] = "  x = 3";
+    shown.splice(5, 0, "new");
+    assert.equal(box.service.saveEdited(review, shown), true);
+    assert.equal(box.read(), "a\n  x = 3\nc\nnew\nd\nf\nG\n");
+  });
+
+  it("сохранение вкладки с правленой красной строкой — файл не трогается", () => {
+    const before = box.read();
+    const review = box.service.load(box.file)!;
+    const shown = [...review.mergedLines];
+    shown[1] = "  x = 100";
+    assert.equal(box.service.saveEdited(review, shown), false);
+    assert.equal(box.read(), before);
+  });
+
+  it("сохранение вкладки: удалённая пустая строка рядом с такой же красной", () => {
+    const blank = new Sandbox("a\n\nb\n", "a\n\n\nB\n");
+    const review = blank.service.load(blank.file)!;
+    const shown = [...review.mergedLines];
+    shown.splice(1, 1);
+    assert.equal(blank.service.saveEdited(review, shown), true);
+    assert.equal(blank.read(), "a\n\nB\n");
+  });
+
+  it("раскраска файла переносится на его строки во вкладке ревью", () => {
+    const review = box.service.load(box.file)!;
+    const tokens = new Uint32Array([1, 2, 1, 0, 0, 3, 0, 1, 7, 1]);
+    assert.deepEqual(
+      [
+        ...box.service.shownTokens(
+          review.currentLines,
+          review.mergedLines,
+          tokens,
+        ),
+      ],
+      [2, 2, 1, 0, 0, 6, 0, 1, 7, 1],
+    );
+  });
+
   it("Reject нового файла удаляет его", () => {
     const created = new Sandbox(undefined, "hello\n");
     created.service.rejectFile(created.service.load(created.file)!);

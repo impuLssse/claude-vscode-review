@@ -55,11 +55,6 @@
         "title": "отменить последний Accept / Reject"
       },
       {
-        "command": "claudeReview.save",
-        "category": "Diff Inline",
-        "title": "сохранить (во вкладке ревью — ничего не делает)"
-      },
-      {
         "command": "claudeReview.openFile",
         "category": "Diff Inline",
         "title": "открыть сам файл"
@@ -198,12 +193,6 @@
     },
     "keybindings": [
       {
-        "key": "ctrl+s",
-        "mac": "cmd+s",
-        "command": "claudeReview.save",
-        "when": "resourceScheme == claude-review"
-      },
-      {
         "key": "alt+y",
         "command": "claudeReview.acceptHunk",
         "when": "editorTextFocus && resourceScheme == claude-review"
@@ -227,7 +216,7 @@
         "key": "ctrl+z",
         "mac": "cmd+z",
         "command": "claudeReview.undo",
-        "when": "editorTextFocus && (resourceScheme == claude-review || resource in claudeReview.undoResources)"
+        "when": "editorTextFocus && resource in claudeReview.undoResources"
       },
       {
         "key": "alt+j",
