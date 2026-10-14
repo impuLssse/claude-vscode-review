@@ -322,6 +322,12 @@
         ]
       },
       {
+        "id": "claude-review-dockercompose",
+        "aliases": [
+          "dockercompose (Diff Inline)"
+        ]
+      },
+      {
         "id": "claude-review-makefile",
         "aliases": [
           "makefile (Diff Inline)"
@@ -420,6 +426,11 @@
         "language": "claude-review-dockerfile",
         "scopeName": "source.claude-review-dockerfile",
         "path": "./syntaxes/claude-review-dockerfile.tmLanguage.json"
+      },
+      {
+        "language": "claude-review-dockercompose",
+        "scopeName": "source.claude-review-dockercompose",
+        "path": "./syntaxes/claude-review-dockercompose.tmLanguage.json"
       },
       {
         "language": "claude-review-makefile",

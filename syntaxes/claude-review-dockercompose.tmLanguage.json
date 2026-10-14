@@ -1,0 +1,8 @@
+{
+  "scopeName": "source.claude-review-dockercompose",
+  "patterns": [
+    {
+      "include": "source.yaml"
+    }
+  ]
+}
