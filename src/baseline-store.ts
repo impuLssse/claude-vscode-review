@@ -58,13 +58,19 @@ export class BaselineStore {
     return [...cache.values()];
   }
 
+  /** Исходник одного файла; JSON перечитывается, только если поменялся его mtime — load зовут на каждое переключение вкладки */
   read(filePath: string): BaselineEntry | undefined {
     const file = this.fileFor(filePath);
     try {
-      return {
-        mtimeMs: fs.statSync(file).mtimeMs,
+      const mtimeMs = fs.statSync(file).mtimeMs;
+      const cached = this.cache.get(file);
+      if (cached?.mtimeMs === mtimeMs) return cached;
+      const entry = {
+        mtimeMs,
         baseline: JSON.parse(fs.readFileSync(file, "utf8")),
       };
+      this.cache.set(file, entry);
+      return entry;
     } catch {
       return undefined;
     }

@@ -44,6 +44,9 @@ export class ReviewService {
   static readonly rejectLabel = "  ✗ Reject  ⌥N  ";
   static readonly buttonsGap = "  ";
 
+  /** Посчитанные ревью: пересчёт, только когда поменялся исходник или файл (mtime и размер) */
+  private readonly loaded = new Map<string, { key: string; review: Review }>();
+
   constructor(
     private readonly diff: LineDiff,
     private readonly store: BaselineStore,
@@ -52,13 +55,21 @@ export class ReviewService {
   /**
    * Ревью файла: исходник против того, что сейчас на диске.
    * Отличий нет и файл менялся после снимка — правки откатили, снимок больше не нужен.
-   * Файл не менялся после снимка — Claude ещё ждёт разрешения на правку, снимок оставляем (кроме совсем старых)
+   * Файл не менялся после снимка — Claude ещё ждёт разрешения на правку, снимок оставляем (кроме совсем старых).
+   * Зовут его на каждое переключение вкладки и каждый stat от VS Code, поэтому дифф берётся из кэша, пока файлы те же
    */
   load(filePath: string): Review | undefined {
     const entry = this.store.read(filePath);
-    if (!entry) return undefined;
+    if (!entry) {
+      this.loaded.delete(filePath);
+      return undefined;
+    }
     const { baseline } = entry;
     const stat = fs.statSync(filePath, { throwIfNoEntry: false });
+    const key = `${entry.mtimeMs}:${stat?.mtimeMs}:${stat?.size}`;
+    const cached = this.loaded.get(filePath);
+    if (cached?.key === key) return cached.review;
+    this.loaded.delete(filePath);
     const baseLines = baseline.created ? [] : baseline.content.split("\n");
     const currentLines = stat
       ? fs.readFileSync(filePath, "utf8").split("\n")
@@ -104,7 +115,7 @@ export class ReviewService {
       cursor = hunk.newStart + hunk.newLines.length;
     }
     mergedLines.push(...currentLines.slice(cursor));
-    return {
+    const review = {
       path: filePath,
       blocks,
       baseline,
@@ -112,6 +123,8 @@ export class ReviewService {
       mergedLines,
       currentLines,
     };
+    this.loaded.set(filePath, { key, review });
+    return review;
   }
 
   /** Принять кусок — он становится частью исходника, файл на диске не меняется */
@@ -226,15 +239,13 @@ export class ReviewService {
    * Раскраска по смыслу (семантические токены) настоящего файла, перенесённая на строки вкладки ревью.
    * Строки сопоставляются диффом, поэтому перенос верен и пока вкладку правят; красные строки и кнопки
    * в настоящем файле не встречаются и остаются с обычной раскраской. Токен — пять чисел:
-   * сдвиг строки, сдвиг колонки (от прошлого токена на той же строке), длина, тип, модификаторы
+   * сдвиг строки, сдвиг колонки (от прошлого токена на той же строке), длина, тип, модификаторы.
+   * shownLine — sameLines(строки файла, строки вкладки): его считают снаружи и кэшируют по версиям документов
    */
   shownTokens(
-    realLines: string[],
-    shownLines: string[],
+    shownLine: Map<number, number>,
     tokens: Uint32Array,
   ): Uint32Array {
-    const shownLine = this.sameLines(realLines, shownLines);
-
     const data: number[] = [];
     let line = 0;
     let column = 0;

@@ -154,8 +154,7 @@ describe("ReviewService", () => {
     assert.deepEqual(
       [
         ...box.service.shownTokens(
-          review.currentLines,
-          review.mergedLines,
+          box.service.sameLines(review.currentLines, review.mergedLines),
           tokens,
         ),
       ],

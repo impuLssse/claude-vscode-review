@@ -56,6 +56,13 @@ export class ReviewController
   private signatures = new Map<string, string>();
   /** Языки, для которых уже подключена раскраска по смыслу из настоящего файла */
   private readonly tokenLanguages = new Set<string>();
+  /** Путь последнего активного редактора — файла или вкладки ревью, см. revealInExplorer */
+  private activePath?: string;
+  /** Сопоставление строк файла и вкладки ревью для раскраски — по версиям обоих документов */
+  private readonly tokenLines = new Map<
+    string,
+    { key: string; lines: Map<number, number> }
+  >();
   /** Размер только что сохранённого текста вкладки — его получит stat сразу после сохранения, см. stat */
   private readonly savedSizes = new Map<string, number>();
   /** Подписки расширения — туда же уходят провайдеры раскраски, подключённые позже */
@@ -320,12 +327,18 @@ export class ReviewController
       vscode.SemanticTokens | undefined
     >("vscode.provideDocumentSemanticTokens", real.uri);
     if (!tokens) return undefined;
+    // токены просят на каждое открытие и правку вкладки — дифф строк пересчитываем, только если поменялся текст
+    const key = `${real.version}:${document.version}`;
+    let cached = this.tokenLines.get(document.uri.fsPath);
+    if (cached?.key !== key) {
+      cached = {
+        key,
+        lines: this.service.sameLines(this.lines(real), this.lines(document)),
+      };
+      this.tokenLines.set(document.uri.fsPath, cached);
+    }
     return new vscode.SemanticTokens(
-      this.service.shownTokens(
-        this.lines(real),
-        this.lines(document),
-        tokens.data,
-      ),
+      this.service.shownTokens(cached.lines, tokens.data),
     );
   }
 
@@ -349,16 +362,40 @@ export class ReviewController
     );
   }
 
-  /** Cmd+клик — к определению в настоящем файле; если оно в этом же файле, его вкладка сама подменится ревью */
+  /**
+   * Cmd+клик — к определению. Если оно в файле с правками Claude, ведём сразу во вкладку ревью на нужную строку:
+   * иначе VS Code откроет настоящий файл, его подменит вкладка ревью, а курсор к этому моменту ещё в начале файла
+   */
   async provideDefinition(
     document: vscode.TextDocument,
     position: vscode.Position,
-  ): Promise<vscode.Location[] | vscode.LocationLink[]> {
+  ): Promise<vscode.Location[]> {
     const real = await this.realPosition(document, position);
     if (!real) return [];
-    return vscode.commands.executeCommand<
-      vscode.Location[] | vscode.LocationLink[]
+    const locations = await vscode.commands.executeCommand<
+      (vscode.Location | vscode.LocationLink)[]
     >("vscode.executeDefinitionProvider", real.uri, real.position);
+    return locations.map((location) => {
+      const uri = "targetUri" in location ? location.targetUri : location.uri;
+      const range =
+        "targetUri" in location
+          ? (location.targetSelectionRange ?? location.targetRange)
+          : location.range;
+      const review =
+        uri.scheme === "file" && this.inWorkspace(uri.fsPath)
+          ? this.service.load(uri.fsPath)
+          : undefined;
+      if (!review) return new vscode.Location(uri, range);
+      return new vscode.Location(
+        this.reviewUri(uri.fsPath),
+        new vscode.Range(
+          this.service.mergedLineFor(review, range.start.line),
+          range.start.character,
+          this.service.mergedLineFor(review, range.end.line),
+          range.end.character,
+        ),
+      );
+    });
   }
 
   /** Место во вкладке ревью → то же место в настоящем файле; у красных строк и кнопок его нет */
@@ -904,8 +941,12 @@ export class ReviewController
     editor: vscode.TextEditor | undefined,
   ): Promise<void> {
     const uri = editor?.document.uri;
+    const previous = this.activePath;
+    this.activePath = uri?.fsPath;
     if (uri?.scheme !== ReviewController.scheme || !fs.existsSync(uri.fsPath))
       return;
+    // перед этим был активен сам файл (вкладку только что подменили на ревью) — проводник его уже показал
+    if (previous === uri.fsPath) return;
     if (
       vscode.workspace.getConfiguration("explorer").get("autoReveal") === false
     )
